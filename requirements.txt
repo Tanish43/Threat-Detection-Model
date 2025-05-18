@@ -5,4 +5,4 @@ numpy
 rapidfuzz
 websockets
 pydub
-sounddevice 
+sounddevice

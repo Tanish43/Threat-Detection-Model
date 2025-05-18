@@ -1,4 +1,4 @@
- # Thresholds for fuzzy matching
+# Thresholds for fuzzy matching
 EXACT_THRESHOLD = 90  # For very close matches
 FUZZY_THRESHOLD = 80  # For likely matches
 SIMILAR_THRESHOLD = 65  # For potential matches
