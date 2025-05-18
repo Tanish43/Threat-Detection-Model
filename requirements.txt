@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+openai-whisper
+numpy
+rapidfuzz
+websockets
+pydub
+sounddevice 

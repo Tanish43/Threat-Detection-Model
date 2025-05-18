@@ -9,6 +9,9 @@ import threading
 from rapidfuzz import fuzz
 from colorama import init, Fore, Back, Style
 import os
+import numpy as np
+import whisper
+from constants import EXACT_THRESHOLD, FUZZY_THRESHOLD, SIMILAR_THRESHOLD, WHISPER_MODEL_NAME, SAMPLE_RATE
 
 # Initialize colorama for colored console output
 init()
@@ -41,10 +44,11 @@ def get_user_settings():
     
     return target_names
 
-# Keep the thresholds as constants
-EXACT_THRESHOLD = 90  # For very close matches
-FUZZY_THRESHOLD = 80  # For likely matches
-SIMILAR_THRESHOLD = 65  # For potential matches
+# Whisper model name (can be 'base', 'small', 'medium', 'large', etc.)
+WHISPER_MODEL_NAME = 'base'
+
+# Sample rate for audio (Whisper expects 16000 Hz for PCM)
+SAMPLE_RATE = 16000
 
 # Alternative model paths (choose the most suitable one)
 MODEL_PATHS = {
@@ -75,62 +79,43 @@ stream = p.open(format=pyaudio.paInt16,
                 frames_per_buffer=4096)
 stream.start_stream()
 
+# Load Whisper model
+whisper_model = whisper.load_model(WHISPER_MODEL_NAME)
+
 def preprocess_text(text):
-    """
-    Enhanced preprocessing for Indian English recognition.
-    """
-    # Normalize text to lowercase
     normalized_text = text.lower().split()
-    
-    # Common Indian English variations and pronunciations
     indian_variations = {
         'wery': 'very',
         'dat': 'that',
         'dis': 'this',
     }
-    
-    # Filter out filler words (expanded list)
     filler_words = {
         "um", "uh", "ah", "like", "you", "know", "so", "well", 
         "right", "okay", "yeah", "the", "a", "an", "and", "but",
         "or", "if", "then", "that", "this", "these", "those",
-        "accha", "haan", "matlab", "actually", "basically"  # Common Indian English fillers
+        "accha", "haan", "matlab", "actually", "basically"
     }
-    
-    # Process tokens
     processed_tokens = []
     for word in normalized_text:
-        # Replace common variations
         word = indian_variations.get(word, word)
         if word and word not in filler_words:
             processed_tokens.append(word)
-    
     return processed_tokens
 
 def detect_name_fuzzy(tokens, target_names, threshold):
-    """
-    Detect names using fuzzy string matching with multiple strategies.
-    """
     matches = []
-    # Create word pairs for compound name detection (fixed zip implementation)
     tokens_list = list(tokens)
     word_pairs = list(zip(tokens_list[:-1], tokens_list[1:])) if len(tokens_list) > 1 else []
-    
-    # Check individual words against all target names
     for token in tokens:
         for target_name in target_names.split(','):
             target_name = target_name.strip().lower()
-            # Calculate different similarity metrics
             ratio_similarity = fuzz.ratio(token, target_name)
             partial_similarity = fuzz.partial_ratio(token, target_name)
             token_score = max(ratio_similarity, partial_similarity)
-            
             if token_score >= threshold:
                 matches.append((token, token_score, "exact", target_name))
             elif token_score >= SIMILAR_THRESHOLD:
                 matches.append((token, token_score, "similar", target_name))
-    
-    # Check word pairs for compound names
     for first, second in word_pairs:
         combined = f"{first} {second}"
         for target_name in target_names.split(','):
@@ -138,11 +123,20 @@ def detect_name_fuzzy(tokens, target_names, threshold):
             ratio_similarity = fuzz.ratio(combined, target_name)
             partial_similarity = fuzz.partial_ratio(combined, target_name)
             pair_score = max(ratio_similarity, partial_similarity)
-            
             if pair_score >= threshold:
                 matches.append((combined, pair_score, "compound", target_name))
-    
     return matches
+
+def process_audio_bytes(audio_bytes, target_names):
+    # Convert bytes to numpy array (assume 16-bit PCM mono)
+    audio_np = np.frombuffer(audio_bytes, np.int16).astype(np.float32) / 32768.0
+    # Whisper expects float32 numpy array, 16kHz mono
+    result = whisper_model.transcribe(audio_np, language='en', fp16=False, task='transcribe', verbose=False)
+    recognized_text = result.get('text', '').strip()
+    tokens = preprocess_text(recognized_text)
+    matches = detect_name_fuzzy(tokens, target_names, FUZZY_THRESHOLD)
+    is_beep = any(score >= EXACT_THRESHOLD for _, score, _, _ in matches)
+    return recognized_text, is_beep
 
 def play_beep():
     """
