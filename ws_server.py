@@ -8,7 +8,7 @@ app = FastAPI()
 @app.websocket("/ws/audio")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    target_names = "test"  # You can change this or make it dynamic
+    target_names = "tanish"  # You can change this or make it dynamic
     try:
         while True:
             audio_bytes = await websocket.receive_bytes()
